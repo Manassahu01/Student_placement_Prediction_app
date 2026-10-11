@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Student placement predictor</title>
+<meta name="description" content="Predict a student's placement chances with a decision tree trained on about 10,000 student records.">
+<meta name="theme-color" content="#061317">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23061317'/%3E%3Ccircle cx='8' cy='16' r='3.2' fill='%23f4b942'/%3E%3Cpath d='M11 16c6 0 5-8 12-8M11 16c6 0 5 8 12 8' fill='none' stroke='%234ddbb0' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --ink-0:#061317;
+    --ink-1:#0b1d23;
+    --ink-2:#112a31;
+    --ink-3:#183842;
+    --line:#21424c;
+    --line-soft:rgba(143,205,205,.12);
+    --text:#e9f4f2;
+    --muted:#8fabac;
+    --faint:#69898c;
+    --amber:#f4b942;
+    --amber-hi:#ffc95c;
+    --amber-ink:#1c1304;
+    --yes:#4ddbb0;
+    --no:#ff7b6b;
+    --code:#040e11;
+    --display:'Bricolage Grotesque','Instrument Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+    --body:'Instrument Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,'Cascadia Code',Menlo,Consolas,monospace;
+    --thumb:18px;
+  }
+
+  *,*::before,*::after{box-sizing:border-box}
+  html{background:var(--ink-0);-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+  body{
+    margin:0;min-height:100vh;color:var(--text);
+    font:400 16px/1.55 var(--body);
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+    overflow-x:hidden;
+  }
+  /* quiet backdrop: faint dot grid that fades out, plus one warm light at the top */
+  body::before{
+    content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+    background:
+      radial-gradient(900px 520px at 10% -12%, rgba(244,185,66,.07), transparent 62%),
+      radial-gradient(rgba(143,205,205,.12) 1px, transparent 1.4px) 0 0/26px 26px;
+    -webkit-mask-image:linear-gradient(to bottom,#000 0,#000 30%,transparent 80%);
+            mask-image:linear-gradient(to bottom,#000 0,#000 30%,transparent 80%);
+  }
+  button,input,select{font:inherit;color:inherit}
+  button{cursor:pointer}
+  a{color:var(--amber);text-underline-offset:3px}
+  a:hover{color:var(--amber-hi)}
+  :focus-visible{outline:2px solid var(--amber);outline-offset:3px;border-radius:8px}
+  .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+  [hidden]{display:none !important}
+
+  .wrap{width:min(1200px,100% - 40px);margin-inline:auto}
+
+  /* ---------- top bar ---------- */
+  .top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:22px 0 6px}
+  .brand{display:flex;align-items:center;gap:12px;font:650 18px/1 var(--display);letter-spacing:-.01em}
+  .brand svg{width:36px;height:36px;flex:none}
+  .top-actions{display:flex;align-items:center;gap:14px}
+  .top-actions a{font-size:14px;color:var(--muted);text-decoration:none}
+  .top-actions a:hover{color:var(--text)}
+
+  .status{
+    display:inline-flex;align-items:center;gap:9px;padding:8px 14px;border-radius:999px;
+    background:var(--ink-1);border:1px solid var(--line);font-size:14px;color:var(--muted);
+  }
+  .status:hover{color:var(--text);border-color:var(--faint)}
+  .status i{width:9px;height:9px;border-radius:50%;background:var(--amber);animation:pulse 1.2s ease-in-out infinite}
+  .status[data-state="online"] i{background:var(--yes);animation:none;box-shadow:0 0 0 4px rgba(77,219,176,.16)}
+  .status[data-state="online"]{color:var(--text)}
+  .status[data-state="offline"] i{background:var(--no);animation:none;box-shadow:0 0 0 4px rgba(255,123,107,.16)}
+  @keyframes pulse{50%{opacity:.35}}
+
+  .notice{
+    margin:18px 0 0;padding:14px 18px;border-radius:14px;
+    background:rgba(255,123,107,.08);border:1px solid rgba(255,123,107,.35);
+    display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;font-size:15px;
+  }
+  .notice strong{color:var(--no);font-weight:600}
+  .notice span{color:var(--muted);flex:1 1 320px}
+  .notice code{font:13px var(--mono);background:var(--ink-2);padding:2px 7px;border-radius:6px;color:var(--text)}
+  .linkbtn{background:none;border:1px solid var(--line);color:var(--text);border-radius:10px;padding:7px 14px;font-size:14px}
+  .linkbtn:hover{border-color:var(--amber);color:var(--amber)}
+
+  /* ---------- hero ---------- */
+  .hero{padding:34px 0 30px;max-width:780px}
+  h1{
+    margin:0 0 16px;font:700 clamp(34px,5.3vw,60px)/1.03 var(--display);letter-spacing:-.028em;
+  }
+  .lede{margin:0;color:var(--muted);font-size:18px;max-width:60ch}
+
+  /* ---------- workspace ---------- */
+  .workspace{display:grid;grid-template-columns:minmax(0,1.22fr) minmax(0,.92fr);gap:28px;align-items:start}
+
+  .panel{
+    background:var(--ink-1);border:1px solid var(--line-soft);border-radius:22px;padding:28px;
+  }
+  .examples{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 26px}
+  .examples > span{color:var(--muted);font-size:14px;margin-right:4px}
+  .ex{
+    background:transparent;border:1px solid var(--line);border-radius:999px;padding:8px 15px;
+    font-size:14px;color:var(--text);transition:border-color .2s,background .2s,color .2s;
+  }
+  .ex:hover{border-color:var(--amber);background:rgba(244,185,66,.08);color:var(--amber-hi)}
+
+  .group + .group,
+  #groups .group:first-child{margin-top:28px;padding-top:26px;border-top:1px solid var(--line-soft)}
+  .group h3{margin:0;font:650 19px/1.2 var(--display);letter-spacing:-.01em}
+  .group .note{margin:4px 0 18px;font-size:14px;color:var(--muted)}
+  .group h3 + .row{margin-top:18px}
+  .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:24px 30px}
+  .stack{display:grid;gap:22px}
+
+  .lbl{display:block;margin:0 0 10px;font:600 14px/1.3 var(--body)}
+  .hint{margin:9px 0 0;font-size:13px;color:var(--faint)}
+
+  /* option pills (real radio inputs) */
+  .pills{display:flex;flex-wrap:wrap;gap:8px}
+  .pill{position:relative}
+  .pill input{position:absolute;opacity:0;inset:0;width:100%;height:100%;margin:0;cursor:pointer}
+  .pill span{
+    display:inline-flex;align-items:center;padding:9px 15px;border-radius:999px;
+    background:var(--ink-2);border:1px solid var(--line);color:var(--muted);font-size:15px;
+    transition:background .2s,border-color .2s,color .2s;
+  }
+  .pill:hover span{color:var(--text)}
+  .pill input:checked + span{background:rgba(244,185,66,.14);border-color:var(--amber);color:var(--amber-hi);font-weight:600}
+  .pill input:focus-visible + span{outline:2px solid var(--amber);outline-offset:3px}
+
+  /* switch */
+  .switch{position:relative;display:inline-flex;align-items:center;gap:11px;cursor:pointer;user-select:none;font-size:15px}
+  .switch input{position:absolute;opacity:0;inset:0;width:100%;height:100%;margin:0;cursor:pointer}
+  .switch .track{
+    position:relative;flex:none;width:42px;height:25px;border-radius:99px;
+    background:var(--ink-3);border:1px solid var(--line);transition:background .2s,border-color .2s;
+  }
+  .switch .track i{
+    position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:50%;
+    background:var(--muted);transition:transform .2s,background .2s;
+  }
+  .switch input:checked + .track{background:rgba(244,185,66,.2);border-color:var(--amber)}
+  .switch input:checked + .track i{transform:translateX(17px);background:var(--amber)}
+  .switch input:focus-visible + .track{outline:2px solid var(--amber);outline-offset:3px}
+
+  /* slider fields */
+  .field-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px}
+  .field-head label{flex:1;min-width:0;font:600 14px/1.3 var(--body)}
+  .num{display:flex;align-items:center;gap:7px;flex:none}
+  .num input{
+    width:76px;padding:7px 10px;text-align:right;border-radius:10px;
+    background:var(--ink-2);border:1px solid var(--line);
+    font:600 15px var(--display);font-variant-numeric:tabular-nums;
+    -moz-appearance:textfield;appearance:textfield;
+  }
+  .num input::-webkit-outer-spin-button,.num input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .num input:hover{border-color:var(--faint)}
+  .num input:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+  .unit{font-size:12.5px;color:var(--faint);min-width:30px}
+  .field.invalid .num input{border-color:var(--no);background:rgba(255,123,107,.08)}
+  .field-error{margin:7px 0 0;font-size:13px;color:var(--no)}
+
+  .range{position:relative;height:24px;display:flex;align-items:center}
+  .range input[type=range]{
+    -webkit-appearance:none;appearance:none;position:relative;width:100%;height:24px;margin:0;background:transparent;cursor:pointer;
+  }
+  .range input[type=range]::-webkit-slider-runnable-track{
+    height:6px;border-radius:99px;
+    background:linear-gradient(to right,var(--amber) 0,var(--amber) calc(var(--p)*(100% - var(--thumb)) + var(--thumb)/2),var(--ink-3) calc(var(--p)*(100% - var(--thumb)) + var(--thumb)/2));
+  }
+  .range input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:var(--thumb);height:var(--thumb);margin-top:-6px;border-radius:50%;
+    background:var(--text);border:4px solid var(--amber);box-shadow:0 0 0 0 rgba(244,185,66,.28);transition:box-shadow .2s;
+  }
+  .range input[type=range]:hover::-webkit-slider-thumb,
+  .range input[type=range]:active::-webkit-slider-thumb{box-shadow:0 0 0 7px rgba(244,185,66,.2)}
+  .range input[type=range]::-moz-range-track{height:6px;border-radius:99px;background:var(--ink-3)}
+  .range input[type=range]::-moz-range-progress{height:6px;border-radius:99px;background:var(--amber)}
+  .range input[type=range]::-moz-range-thumb{
+    box-sizing:border-box;width:var(--thumb);height:var(--thumb);border-radius:50%;
+    background:var(--text);border:4px solid var(--amber);
+  }
+  .range input[type=range]:focus-visible{outline:2px solid var(--amber);outline-offset:4px;border-radius:12px}
+  /* dataset-average marker sits behind the thumb */
+  .avg-tick{
+    position:absolute;top:50%;left:calc(var(--avg)*(100% - var(--thumb)) + var(--thumb)/2);
+    width:2px;height:16px;transform:translate(-50%,-50%);border-radius:2px;background:var(--muted);opacity:.75;pointer-events:none;
+  }
+  .range-meta{position:relative;display:flex;justify-content:space-between;height:17px;font-size:12px;color:var(--faint)}
+  .avg-label{position:absolute;top:0;left:calc(var(--avg)*(100% - var(--thumb)) + var(--thumb)/2);transform:translateX(-50%);white-space:nowrap;color:var(--muted)}
+
+  /* actions */
+  .actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:32px;padding-top:26px;border-top:1px solid var(--line-soft)}
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:10px;
+    padding:16px 24px;border-radius:14px;border:1px solid transparent;
+    font:600 16px/1 var(--body);transition:transform .15s,background .2s,border-color .2s,color .2s;
+  }
+  .btn.primary{background:var(--amber);color:var(--amber-ink);flex:1 1 220px}
+  .btn.primary:hover{background:var(--amber-hi)}
+  .btn.primary:active{transform:translateY(1px)}
+  .btn.ghost{background:transparent;color:var(--muted);border-color:var(--line)}
+  .btn.ghost:hover{color:var(--text);border-color:var(--faint)}
+  .spin{display:none;width:16px;height:16px;border-radius:50%;border:2.5px solid rgba(28,19,4,.28);border-top-color:var(--amber-ink);animation:spin .7s linear infinite}
+  .btn.loading .spin{display:inline-block}
+  .btn.loading{cursor:progress}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* ---------- result stage ---------- */
+  .stage{
+    position:sticky;top:20px;isolation:isolate;overflow:hidden;
+    padding:26px 26px 22px;border-radius:26px;
+    background:linear-gradient(180deg,var(--ink-1),#091a1f);border:1px solid var(--line-soft);
+  }
+  .glow{
+    position:absolute;z-index:-1;right:-130px;top:-150px;width:440px;height:330px;border-radius:50%;
+    filter:blur(72px);opacity:0;transition:opacity .9s;pointer-events:none;
+  }
+  .glow.yes{background:rgba(77,219,176,.28)}
+  .glow.no{background:rgba(255,123,107,.26)}
+  .stage[data-outcome="yes"] .glow.yes,
+  .stage[data-outcome="no"] .glow.no{opacity:1}
+
+  .stage-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .stage-head h2{margin:0;font:650 19px/1.2 var(--display);letter-spacing:-.01em}
+  .chip{
+    display:inline-flex;align-items:center;gap:8px;padding:6px 13px;border-radius:999px;
+    font-size:14px;font-weight:600;background:var(--ink-2);border:1px solid var(--line);color:var(--muted);
+    transition:background .4s,border-color .4s,color .4s;
+  }
+  .chip i{width:8px;height:8px;border-radius:50%;background:var(--faint);transition:background .4s}
+  .stage[data-outcome="yes"] .chip{background:rgba(77,219,176,.12);border-color:rgba(77,219,176,.5);color:var(--yes)}
+  .stage[data-outcome="yes"] .chip i{background:var(--yes)}
+  .stage[data-outcome="no"] .chip{background:rgba(255,123,107,.12);border-color:rgba(255,123,107,.5);color:var(--no)}
+  .stage[data-outcome="no"] .chip i{background:var(--no)}
+
+  .score{margin:26px 0 0;transition:opacity .3s}
+  .big{display:flex;align-items:baseline;gap:4px;font:700 clamp(68px,9vw,100px)/.95 var(--display);letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+  .big .pct{font-size:.42em;font-weight:600;color:var(--muted);letter-spacing:0}
+  .cap{margin:8px 0 0;color:var(--muted);font-size:15px}
+  .stage[data-stale="true"] .score,
+  .stage[data-stale="true"] .fork{opacity:.45}
+  .fork{transition:opacity .3s}
+
+  .fork{display:block;width:100%;height:auto;margin:14px 0 4px;overflow:visible}
+  .fork .ghost{fill:none;stroke:var(--line);stroke-width:3;stroke-linecap:round;stroke-dasharray:1 9;transition:opacity .5s}
+  .stage.has-result .ghost{opacity:0}
+  .fork .branch{
+    fill:none;stroke-linecap:butt;stroke-width:4;stroke-dasharray:1;stroke-dashoffset:1;
+    transition:stroke-dashoffset 1s cubic-bezier(.2,.7,.2,1),stroke-width .6s cubic-bezier(.2,.7,.2,1),opacity .5s,filter .5s;
+  }
+  .fork .branch.yes{stroke:var(--yes)}
+  .fork .branch.no{stroke:var(--no)}
+  .stage.has-result .branch{stroke-dashoffset:0}
+  .stage[data-outcome="yes"] .branch.no,
+  .stage[data-outcome="no"] .branch.yes{opacity:.4}
+  .stage[data-outcome="yes"] .branch.yes{filter:drop-shadow(0 0 9px rgba(77,219,176,.55))}
+  .stage[data-outcome="no"] .branch.no{filter:drop-shadow(0 0 9px rgba(255,123,107,.5))}
+  .fork .root-ring{fill:var(--ink-1);stroke:var(--faint);stroke-width:1.5}
+  .fork .root-dot{fill:var(--amber)}
+  .fork .root-label{fill:var(--muted);font:500 13px var(--body);text-anchor:middle}
+  .fork .leaf rect{fill:var(--ink-1);stroke:var(--line);stroke-width:1.5;transition:fill .5s,stroke .5s}
+  .fork .leaf .name{fill:var(--muted);font:500 14px var(--body);transition:fill .5s}
+  .fork .leaf .val{fill:var(--text);font:700 24px var(--display)}
+  .fork .leaf.yes.win rect{fill:rgba(77,219,176,.12);stroke:var(--yes)}
+  .fork .leaf.no.win rect{fill:rgba(255,123,107,.12);stroke:var(--no)}
+  .fork .leaf.win .name{fill:var(--text)}
+
+  .line{min-height:24px;margin:8px 0 0;font-size:15px;color:var(--muted)}
+  .line.up{color:var(--yes)}
+  .line.down{color:var(--no)}
+  .stage-foot{margin-top:18px;padding-top:18px;border-top:1px solid var(--line-soft);display:grid;gap:12px}
+  .stage-foot .switch{font-size:14.5px}
+  .fine{margin:0;font-size:13px;color:var(--faint)}
+  .stage-error{margin:14px 0 0;padding:12px 14px;border-radius:12px;background:rgba(255,123,107,.09);border:1px solid rgba(255,123,107,.35);color:#ffb3a9;font-size:14.5px}
+
+  /* ---------- lower sections ---------- */
+  .section{padding:84px 0 0}
+  .section h2{margin:0 0 30px;font:700 clamp(27px,3.5vw,38px)/1.08 var(--display);letter-spacing:-.022em}
+
+  .steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:30px;counter-reset:step}
+  .steps li{position:relative;padding-top:50px}
+  .steps li::before{
+    counter-increment:step;content:counter(step);position:absolute;top:0;left:0;z-index:1;
+    width:34px;height:34px;display:grid;place-items:center;border-radius:50%;
+    background:var(--ink-0);border:1.5px solid var(--amber);color:var(--amber);font:650 15px var(--display);
+  }
+  .steps li:not(:last-child)::after{
+    content:"";position:absolute;top:16px;left:46px;right:-18px;height:2px;
+    background:repeating-linear-gradient(to right,var(--line) 0 6px,transparent 6px 12px);
+  }
+  .steps h3{margin:0 0 8px;font:650 19px/1.25 var(--display);letter-spacing:-.01em}
+  .steps p{margin:0;color:var(--muted);max-width:36ch}
+
+  .hood{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:48px;align-items:start}
+  dl{margin:0;display:grid;gap:22px}
+  dt{font:650 18px/1.3 var(--display);letter-spacing:-.01em;margin-bottom:5px}
+  dd{margin:0;color:var(--muted);max-width:56ch}
+  dd b{color:var(--text);font-weight:600}
+  .doc-link{display:inline-block;margin-top:24px;font-size:15px}
+
+  .codes{display:grid;gap:16px}
+  .code{background:var(--code);border:1px solid var(--line-soft);border-radius:16px;overflow:hidden}
+  .code-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 16px;border-bottom:1px solid var(--line-soft);font-size:13.5px;color:var(--muted)}
+  .code-head b{font:600 13px var(--mono);color:var(--text)}
+  .code-head b span{color:var(--yes)}
+  .copy{background:none;border:1px solid var(--line);border-radius:8px;padding:4px 11px;font-size:13px;color:var(--muted)}
+  .copy:hover{color:var(--text);border-color:var(--faint)}
+  .code pre{margin:0;padding:16px;overflow-x:auto;font:13.5px/1.7 var(--mono);color:var(--text)}
+  .code .k{color:#7fc7c0}
+  .code .s{color:#8be6c4}
+  .code .n{color:var(--amber)}
+  .code .dim{color:var(--faint)}
+  .code .bad{color:var(--no)}
+
+  footer{margin-top:90px;padding:26px 0 40px;border-top:1px solid var(--line-soft);display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px 24px;font-size:14px;color:var(--faint)}
+  footer p{margin:0;max-width:62ch}
+  footer .credit{display:flex;gap:16px;align-items:center}
+
+  /* mobile result dock */
+  .dock{
+    position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:30;
+    display:none;align-items:center;gap:12px;padding:13px 16px;border-radius:16px;
+    background:rgba(11,29,35,.93);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+    border:1px solid var(--line);box-shadow:0 14px 34px rgba(0,0,0,.5);text-align:left;font:600 15px var(--body);color:var(--text);
+  }
+  .dock .dot{width:10px;height:10px;border-radius:50%;background:var(--muted);flex:none}
+  .dock[data-outcome="yes"] .dot{background:var(--yes)}
+  .dock[data-outcome="no"] .dot{background:var(--no)}
+  .dock strong{margin-left:auto;font:700 22px var(--display);font-variant-numeric:tabular-nums}
+  .dock .go{font-weight:500;font-size:13px;color:var(--muted)}
+
+  /* ---------- responsive ---------- */
+  @media (max-width:979px){
+    .workspace{grid-template-columns:minmax(0,1fr)}
+    .stage{position:relative;top:0}
+    .hood{grid-template-columns:minmax(0,1fr);gap:36px}
+    .dock.show{display:flex}
+    body{padding-bottom:88px}
+  }
+  @media (max-width:720px){
+    .steps{grid-template-columns:minmax(0,1fr);gap:26px}
+    .steps li{padding:0 0 0 52px}
+    .steps li:not(:last-child)::after{top:40px;bottom:-22px;left:16px;right:auto;width:2px;height:auto;background:repeating-linear-gradient(to bottom,var(--line) 0 6px,transparent 6px 12px)}
+  }
+  @media (max-width:520px){
+    .wrap{width:min(1200px,100% - 28px)}
+    .panel{padding:22px 18px;border-radius:20px}
+    .stage{padding:22px 18px 18px;border-radius:22px}
+    .section{padding-top:64px}
+    .top-actions .gh{display:none}
+    .actions .btn{flex:1 1 100%}
+  }
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto}
+    *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}
+  }
+</style>
+</head>
+
+<body>
+<noscript><p style="padding:24px;text-align:center">This page needs JavaScript to run predictions.</p></noscript>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 36 36" aria-hidden="true">
+        <rect width="36" height="36" rx="10" fill="#0b1d23" stroke="#21424c"/>
+        <circle cx="9" cy="18" r="3.4" fill="#f4b942"/>
+        <path d="M12.5 18c7 0 6-9 13.5-9M12.5 18c7 0 6 9 13.5 9" fill="none" stroke="#4ddbb0" stroke-width="2.6" stroke-linecap="round"/>
+      </svg>
+      Placement predictor
+    </div>
+    <div class="top-actions">
+      <a class="gh" id="ghLink" href="#" hidden target="_blank" rel="noopener">GitHub</a>
+      <button class="status" id="status" type="button" data-state="checking" title="Check the prediction service again">
+        <i></i><span id="statusText">Checking service</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="notice" id="notice" role="status" hidden>
+    <strong>Can't reach the prediction service.</strong>
+    <span id="noticeText"></span>
+    <button class="linkbtn" id="retry" type="button">Check again</button>
+  </div>
+
+  <section class="hero">
+    <h1>Predict a student's placement chances</h1>
+    <p class="lede">Describe a student's habits and results. A decision tree trained on about 10,000 student records returns the probability of being placed.</p>
+  </section>
+
+  <main class="workspace">
+    <!-- ================= form ================= -->
+    <form class="panel" id="form" novalidate autocomplete="off">
+      <div class="examples">
+        <span>Try an example</span>
+        <button class="ex" type="button" data-example="strong">Strong record</button>
+        <button class="ex" type="button" data-example="typical">Typical student</button>
+        <button class="ex" type="button" data-example="risk">At risk</button>
+      </div>
+
+      <section class="group" aria-labelledby="g-about">
+        <h3 id="g-about">About the student</h3>
+        <div class="row">
+          <div class="field">
+            <span class="lbl" id="lbl-gender">Gender</span>
+            <div class="pills" role="radiogroup" aria-labelledby="lbl-gender">
+              <label class="pill"><input type="radio" name="gender" value="Female" checked><span>Female</span></label>
+              <label class="pill"><input type="radio" name="gender" value="Male"><span>Male</span></label>
+            </div>
+          </div>
+          <div class="field">
+            <span class="lbl" id="lbl-extra">Extracurricular activities</span>
+            <label class="switch">
+              <input type="checkbox" id="extracurricular" role="switch" aria-labelledby="lbl-extra extraText" checked>
+              <span class="track"><i></i></span>
+              <span id="extraText">Takes part</span>
+            </label>
+          </div>
+        </div>
+        <div class="field" style="margin-top:24px">
+          <span class="lbl" id="lbl-branch">Branch</span>
+          <div class="pills" id="branchPills" role="radiogroup" aria-labelledby="lbl-branch"></div>
+          <p class="hint">Branches the model hasn't seen are grouped as unknown.</p>
+        </div>
+      </section>
+
+      <div id="groups"></div>
+
+      <div class="actions">
+        <button class="btn primary" id="submit" type="submit"><span class="spin" aria-hidden="true"></span><span id="submitText">Predict placement</span></button>
+        <button class="btn ghost" id="reset" type="button">Reset values</button>
+      </div>
+    </form>
+
+    <!-- ================= result ================= -->
+    <aside class="stage" id="stage" data-outcome="none" data-stale="false" aria-labelledby="stageTitle">
+      <div class="glow yes"></div><div class="glow no"></div>
+      <div class="stage-head">
+        <h2 id="stageTitle">Prediction</h2>
+        <span class="chip"><i></i><span id="chipText">No result yet</span></span>
+      </div>
+
+      <div class="score">
+        <div class="big"><span id="bigNum">&mdash;</span><span class="pct" id="pct" hidden>%</span></div>
+        <p class="cap">chance of being placed</p>
+      </div>
+
+      <svg class="fork" viewBox="0 0 440 250" role="img" aria-label="The probability splits between a Placed branch and a Not placed branch">
+        <path class="ghost" d="M62 125 C170 125 190 62 300 62"/>
+        <path class="ghost" d="M62 125 C170 125 190 188 300 188"/>
+        <path class="branch yes" id="brYes" pathLength="1" d="M62 125 C170 125 190 62 300 62"/>
+        <path class="branch no"  id="brNo"  pathLength="1" d="M62 125 C170 125 190 188 300 188"/>
+        <circle class="root-ring" cx="46" cy="125" r="17"/>
+        <circle class="root-dot" cx="46" cy="125" r="6"/>
+        <text class="root-label" x="46" y="162">Student</text>
+        <g class="leaf yes" id="leafYes">
+          <rect x="300" y="30" width="132" height="64" rx="16"/>
+          <text class="name" x="318" y="56">Placed</text>
+          <text class="val" id="valYes" x="318" y="82">&mdash;</text>
+        </g>
+        <g class="leaf no" id="leafNo">
+          <rect x="300" y="156" width="132" height="64" rx="16"/>
+          <text class="name" x="318" y="182">Not placed</text>
+          <text class="val" id="valNo" x="318" y="208">&mdash;</text>
+        </g>
+      </svg>
+
+      <p class="line" id="line">Run a prediction to see the tree split.</p>
+      <p class="sr-only" id="srResult" aria-live="polite"></p>
+      <div class="stage-error" id="stageError" role="alert" hidden></div>
+
+      <div class="stage-foot">
+        <label class="switch">
+          <input type="checkbox" id="live" checked>
+          <span class="track"><i></i></span>
+          <span>Update as I change values</span>
+        </label>
+        <p class="fine">An estimate based on past data, not a guarantee.</p>
+      </div>
+    </aside>
+  </main>
+
+  <!-- ================= how it works ================= -->
+  <section class="section" aria-labelledby="how-h">
+    <h2 id="how-h">How a prediction is made</h2>
+    <ol class="steps">
+      <li>
+        <h3>Describe the student</h3>
+        <p>Fill in ten details: branch, daily habits, attendance and scores. No names or IDs are needed.</p>
+      </li>
+      <li>
+        <h3>The tree asks questions</h3>
+        <p>At each step the model compares one value with a threshold it learned from past students, then follows a branch.</p>
+      </li>
+      <li>
+        <h3>Read the probability</h3>
+        <p>The path ends at a leaf. The share of placed students in that leaf is the probability you see.</p>
+      </li>
+    </ol>
+  </section>
+
+  <!-- ================= under the hood ================= -->
+  <section class="section" aria-labelledby="hood-h">
+    <h2 id="hood-h">Under the hood</h2>
+    <div class="hood">
+      <div>
+        <dl>
+          <div>
+            <dt>Model</dt>
+            <dd>A decision tree classifier from scikit-learn. Tree depth, minimum leaf size and split rule were tuned with a randomized search and 5-fold cross-validation, then checked on a held-out 20% of the data.<span id="accuracy"></span></dd>
+          </div>
+          <div>
+            <dt>Training data</dt>
+            <dd>About 10,000 student records, roughly half of them placed. Duplicates were dropped, branch names cleaned up, daily hours capped to sensible ranges and missing values filled with medians.</dd>
+          </div>
+          <div>
+            <dt>Inputs</dt>
+            <dd>Ten inputs become 16 model features, because branch is split into one column per branch plus an unknown group.</dd>
+          </div>
+          <div>
+            <dt>Why results move in steps</dt>
+            <dd>The probability is the share of placed students in a single leaf, so it jumps between values instead of changing smoothly. A small change can leave it unchanged until a threshold is crossed.</dd>
+          </div>
+        </dl>
+        <a class="doc-link" href="/docs" target="_blank" rel="noopener">Open the API docs</a>
+      </div>
+
+      <div class="codes">
+        <div class="code">
+          <div class="code-head"><b><span>POST</span> /predict</b><button class="copy" id="copyReq" type="button">Copy JSON</button></div>
+          <pre><code id="reqCode"></code></pre>
+        </div>
+        <div class="code">
+          <div class="code-head"><b>Response</b><span id="resMeta"></span></div>
+          <pre><code id="resCode"><span class="dim">Waiting for a prediction</span></code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p>Predictions are estimates from a sample dataset. Don't use them for real admission or hiring decisions.</p>
+    <div class="credit" id="credit" hidden></div>
+  </footer>
+</div>
+
+<!-- mobile: keeps the result in view while adjusting values -->
+<button class="dock" id="dock" type="button" data-outcome="none" aria-label="Go to prediction result">
+  <span class="dot"></span><span id="dockText">Placed</span><strong id="dockNum">0%</strong><span class="go">Details</span>
+</button>
+
+<script>
+(() => {
+  'use strict';
+
+  /* ---------------------------------------------------------------
+     Settings you can edit. Leave a value empty to hide it.
+  ---------------------------------------------------------------- */
+  const CONFIG = {
+    githubUrl: '',      // for example 'https://github.com/your-name/placement-predictor'
+    author: '',         // for example 'Your Name'
+    testAccuracy: ''    // for example '86.5%'. Shown under "Model" once you fill it in.
+  };
+
+  /* ---------------------------------------------------------------
+     Form definition. Averages come from the training CSV.
+  ---------------------------------------------------------------- */
+  const BRANCHES = [
+    ['CSE','CSE'], ['IT','IT'], ['ECE','ECE'],
+    ['MECHANICAL','Mechanical'], ['CIVIL','Civil'], ['COMMERCE','Commerce'], ['OTHER','Other']
+  ];
+
+  const GROUPS = [
+    { id:'habits', title:'Daily habits', note:'A typical day, in hours.', fields:[
+      { key:'study_hours',    label:'Study time',   unit:'h/day', min:0, max:12, step:.5, avg:3.5 },
+      { key:'sleep_hours',    label:'Sleep',        unit:'h/day', min:3, max:12, step:.5, avg:6.8 },
+      { key:'internet_usage', label:'Internet use', unit:'h/day', min:0, max:12, step:.5, avg:4.5 }
+    ]},
+    { id:'record', title:'Academic record', note:'Attendance and scores are percentages.', fields:[
+      { key:'attendance',            label:'Attendance',            unit:'%',    min:0, max:100, step:1, numStep:.1, avg:75.8 },
+      { key:'assignments_completed', label:'Assignments completed', unit:'of 20', min:0, max:20,  step:1, avg:12.8, integer:true },
+      { key:'previous_score',        label:'Previous score',        unit:'%',    min:0, max:100, step:1, numStep:.1, avg:61.8 },
+      { key:'exam_score',            label:'Exam score',            unit:'%',    min:0, max:100, step:1, numStep:.1, avg:60.6 }
+    ]}
+  ];
+  const FIELDS = GROUPS.flatMap(g => g.fields);
+
+  // Same key order the API documentation uses.
+  const REQUEST_ORDER = ['gender','branch','study_hours','attendance','sleep_hours','internet_usage',
+                         'assignments_completed','previous_score','extracurricular','exam_score'];
+
+  const DEFAULTS = {
+    gender:'Female', branch:'CSE', extracurricular:true,
+    study_hours:5.5, sleep_hours:7, internet_usage:3,
+    attendance:85, assignments_completed:8, previous_score:78, exam_score:82
+  };
+  const EXAMPLES = {
+    strong:  { gender:'Female', branch:'CSE', extracurricular:true,  study_hours:6,   sleep_hours:7.5, internet_usage:2.5, attendance:92, assignments_completed:18, previous_score:85, exam_score:88 },
+    typical: { gender:'Male',   branch:'IT',  extracurricular:true,  study_hours:3.5, sleep_hours:6.8, internet_usage:4.5, attendance:76, assignments_completed:13, previous_score:62, exam_score:60 },
+    risk:    { gender:'Male',   branch:'MECHANICAL', extracurricular:false, study_hours:1, sleep_hours:5, internet_usage:8, attendance:55, assignments_completed:3, previous_score:40, exam_score:35 }
+  };
+
+  /* ---------------------------------------------------------------
+     Helpers
+  ---------------------------------------------------------------- */
+  const $  = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const fmt = v => Number.isInteger(v) ? String(v) : String(+v.toFixed(2));
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const form = $('#form'), stage = $('#stage'), statusBtn = $('#status');
+  const submitBtn = $('#submit'), liveBox = $('#live'), line = $('#line');
+  const els = {};            // per-field elements
+
+  /* ---------------------------------------------------------------
+     Build the form
+  ---------------------------------------------------------------- */
+  $('#branchPills').innerHTML = BRANCHES.map(([val, label], i) =>
+    `<label class="pill"><input type="radio" name="branch" value="${val}"${i === 0 ? ' checked' : ''}><span>${label}</span></label>`
+  ).join('');
+
+  $('#groups').innerHTML = GROUPS.map(g => `
+    <section class="group" aria-labelledby="g-${g.id}">
+      <h3 id="g-${g.id}">${g.title}</h3>
+      <p class="note">${g.note}</p>
+      <div class="row">
+        ${g.fields.map(f => `
+        <div class="field" id="field_${f.key}">
+          <div class="field-head">
+            <label for="n_${f.key}">${f.label}</label>
+            <div class="num">
+              <input id="n_${f.key}" type="number" inputmode="decimal" min="${f.min}" max="${f.max}" step="${f.numStep || f.step}" aria-describedby="e_${f.key}">
+              <span class="unit">${f.unit}</span>
+            </div>
+          </div>
+          <div class="range">
+            <i class="avg-tick" aria-hidden="true"></i>
+            <input id="r_${f.key}" type="range" min="${f.min}" max="${f.max}" step="${f.step}" aria-label="${f.label} slider">
+          </div>
+          <div class="range-meta" aria-hidden="true">
+            <span>${f.min}</span><span class="avg-label">avg ${+f.avg.toFixed(1)}</span><span>${f.max}</span>
+          </div>
+          <p class="field-error" id="e_${f.key}" role="alert" hidden></p>
+        </div>`).join('')}
+      </div>
+    </section>`).join('');
+
+  FIELDS.forEach(f => {
+    els[f.key] = {
+      box: $('#field_' + f.key), num: $('#n_' + f.key), rng: $('#r_' + f.key), err: $('#e_' + f.key)
+    };
+    els[f.key].box.style.setProperty('--avg', clamp((f.avg - f.min) / (f.max - f.min), 0, 1));
+  });
+
+  /* ---------------------------------------------------------------
+     Reading and writing form values
+  ---------------------------------------------------------------- */
+  const radio = name => ($(`input[name="${name}"]:checked`) || {}).value;
+  const readNum = f => {
+    const t = els[f.key].num.value.trim();
+    return t === '' ? NaN : Number(t);
+  };
+
+  function paintRange(f) {
+    const v = Number(els[f.key].rng.value);
+    els[f.key].box.style.setProperty('--p', clamp((v - f.min) / (f.max - f.min), 0, 1));
+  }
+
+  function setValue(f, v) {
+    els[f.key].num.value = fmt(v);
+    els[f.key].rng.value = v;
+    paintRange(f);
+    setFieldError(f, '');
+  }
+
+  function applyValues(v) {
+    const g = $(`input[name="gender"][value="${v.gender}"]`); if (g) g.checked = true;
+    const b = $(`input[name="branch"][value="${v.branch}"]`); if (b) b.checked = true;
+    $('#extracurricular').checked = !!v.extracurricular;
+    $('#extraText').textContent = v.extracurricular ? 'Takes part' : 'Does not take part';
+    FIELDS.forEach(f => setValue(f, v[f.key]));
+    renderRequest();
+  }
+
+  function validateField(f) {
+    const v = readNum(f);
+    if (!Number.isFinite(v)) return 'Enter a number.';
+    if (v < f.min || v > f.max) return `Use a value from ${f.min} to ${f.max}.`;
+    if (f.integer && !Number.isInteger(v)) return 'Use a whole number.';
+    return '';
+  }
+
+  function setFieldError(f, msg) {
+    const e = els[f.key];
+    e.box.classList.toggle('invalid', !!msg);
+    e.num.setAttribute('aria-invalid', msg ? 'true' : 'false');
+    e.err.textContent = msg;
+    e.err.hidden = !msg;
+  }
+
+  // Returns the request body. With loose = true, unreadable numbers become null.
+  function collect(loose = false) {
+    const o = {
+      gender: radio('gender'),
+      branch: radio('branch'),
+      extracurricular: $('#extracurricular').checked ? 'Yes' : 'No'
+    };
+    FIELDS.forEach(f => { const v = readNum(f); o[f.key] = Number.isFinite(v) ? v : (loose ? null : v); });
+    return Object.fromEntries(REQUEST_ORDER.map(k => [k, o[k]]));
+  }
+
+  /* ---------------------------------------------------------------
+     Request / response panels
+  ---------------------------------------------------------------- */
+  function jsonHTML(obj) {
+    const rows = Object.entries(obj).map(([k, v], i, a) => {
+      let val;
+      if (v === null) val = '<span class="bad">?</span>';
+      else if (typeof v === 'number') val = `<span class="n">${v}</span>`;
+      else val = `<span class="s">"${esc(v)}"</span>`;
+      return `  <span class="k">"${esc(k)}"</span>: ${val}${i < a.length - 1 ? ',' : ''}`;
+    });
+    return `{\n${rows.join('\n')}\n}`;
+  }
+  const renderRequest = () => { $('#reqCode').innerHTML = jsonHTML(collect(true)); };
+
+  $('#copyReq').addEventListener('click', async e => {
+    const btn = e.currentTarget, text = JSON.stringify(collect(true), null, 2);
+    try { await navigator.clipboard.writeText(text); }
+    catch {
+      const t = Object.assign(document.createElement('textarea'), { value: text });
+      document.body.appendChild(t); t.select(); try { document.execCommand('copy'); } catch {} t.remove();
+    }
+    btn.textContent = 'Copied';
+    setTimeout(() => { btn.textContent = 'Copy JSON'; }, 1400);
+  });
+
+  /* ---------------------------------------------------------------
+     Service status
+  ---------------------------------------------------------------- */
+  let online = null, featureCount = null;
+  function setStatus(state, detail) {
+    online = state === 'online' ? true : state === 'offline' ? false : online;
+    statusBtn.dataset.state = state;
+    $('#statusText').textContent = state === 'online' ? 'Model online' : state === 'offline' ? 'Service offline' : 'Checking service';
+    statusBtn.title = state === 'online' && detail ? `Model loaded with ${detail} features. Click to check again.` : 'Check the prediction service again';
+    const notice = $('#notice');
+    notice.hidden = state !== 'offline';
+    if (state === 'offline') {
+      $('#noticeText').innerHTML = location.protocol === 'file:'
+        ? 'This page was opened as a plain file. Start the FastAPI app with <code>python -m uvicorn app:app --reload</code> and open <code>http://127.0.0.1:8000</code> instead.'
+        : 'Make sure the FastAPI app is running, then check again.';
+    }
+  }
+
+  async function checkHealth() {
+    setStatus('checking');
+    try {
+      const r = await fetch('/health', { cache: 'no-store' });
+      if (!r.ok) throw new Error('bad status');
+      const d = await r.json();
+      if (!d.model_loaded) throw new Error('model not loaded');
+      featureCount = d.feature_count; setStatus('online', featureCount);
+      if (!hasResult) predict({ quiet: true });
+    } catch { setStatus('offline'); }
+  }
+  statusBtn.addEventListener('click', checkHealth);
+  $('#retry').addEventListener('click', checkHealth);
+
+  /* ---------------------------------------------------------------
+     Prediction
+  ---------------------------------------------------------------- */
+  let hasResult = false, prevPct = null, shown = null, raf = 0, seq = 0, controller = null, timer = 0;
+
+  function detailFrom(data, status) {
+    if (data && Array.isArray(data.detail)) {
+      return data.detail.map(d => {
+        const where = Array.isArray(d.loc) ? d.loc[d.loc.length - 1] : '';
+        return where ? `${String(where).replace(/_/g, ' ')}: ${d.msg}` : d.msg;
+      }).join('. ');
+    }
+    if (data && typeof data.detail === 'string') return data.detail;
+    return `The service answered with status ${status}.`;
+  }
+
+  function showStageError(msg) { const b = $('#stageError'); b.textContent = msg; b.hidden = !msg; }
+
+  async function predict({ quiet = false } = {}) {
+    clearTimeout(timer);
+
+    // check every number before sending
+    const bad = FIELDS.filter(f => validateField(f));
+    if (bad.length) {
+      if (!quiet) {
+        bad.forEach(f => setFieldError(f, validateField(f)));
+        els[bad[0].key].num.focus();
+      }
+      return;
+    }
+
+    const payload = collect();
+    const mine = ++seq;
+    if (controller) controller.abort();
+    controller = new AbortController();
+    if (!quiet) { submitBtn.classList.add('loading'); $('#submitText').textContent = 'Predicting'; }
+
+    try {
+      const res = await fetch('/predict', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      let data = null;
+      try { data = await res.json(); } catch {}
+      if (mine !== seq) return;
+      if (!res.ok) {
+        $('#resCode').innerHTML = data ? jsonHTML2(data) : '<span class="dim">No readable response</span>';
+        throw new Error(detailFrom(data, res.status));
+      }
+      renderResult(data);
+      setStatus('online', featureCount);
+      showStageError('');
+    } catch (err) {
+      if (err.name === 'AbortError' || mine !== seq) return;
+      const network = err instanceof TypeError;
+      if (network) {
+        setStatus('offline');
+        $('#resCode').innerHTML = '<span class="dim">No response. The service could not be reached.</span>';
+      }
+      showStageError(network ? 'The prediction service could not be reached.' : err.message);
+    } finally {
+      if (mine === seq) { submitBtn.classList.remove('loading'); $('#submitText').textContent = 'Predict placement'; }
+    }
+  }
+
+  // plain pretty-printer for error bodies
+  const jsonHTML2 = o => `<span class="bad">${esc(JSON.stringify(o, null, 2))}</span>`;
+
+  function countTo(el, to) {
+    const from = shown == null ? 0 : shown;
+    shown = to;
+    cancelAnimationFrame(raf);
+    if (reduceMotion || from === to) { el.textContent = to; return; }
+    const t0 = performance.now(), dur = 750;
+    const tick = now => {
+      const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+      el.textContent = Math.round(from + (to - from) * e);
+      if (k < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+  }
+
+  function renderResult(data) {
+    const p = Number(data && data.placement_probability);
+    const status = data && data.placement_status;
+    if (!Number.isFinite(p) || (status !== 'Placed' && status !== 'Not Placed')) {
+      throw new Error('The service returned an unexpected response.');
+    }
+    const pct = Math.round(clamp(p, 0, 1) * 100);
+    const placed = status === 'Placed';
+    const label = placed ? 'Placed' : 'Not placed';
+
+    stage.classList.add('has-result');
+    stage.dataset.outcome = placed ? 'yes' : 'no';
+    stage.dataset.stale = 'false';
+    $('#chipText').textContent = label;
+    $('#pct').hidden = false;
+    countTo($('#bigNum'), pct);
+
+    $('#brYes').style.strokeWidth = (4 + 24 * (pct / 100)).toFixed(1);
+    $('#brNo').style.strokeWidth  = (4 + 24 * (1 - pct / 100)).toFixed(1);
+    $('#valYes').textContent = pct + '%';
+    $('#valNo').textContent = (100 - pct) + '%';
+    $('#leafYes').classList.toggle('win', placed);
+    $('#leafNo').classList.toggle('win', !placed);
+
+    if (prevPct == null) { line.className = 'line'; line.textContent = 'Based on the values you entered.'; }
+    else {
+      const d = pct - prevPct;
+      line.className = 'line ' + (d > 0 ? 'up' : d < 0 ? 'down' : '');
+      line.textContent = d === 0 ? 'Same as the last check.'
+        : `${d > 0 ? 'Up' : 'Down'} ${Math.abs(d)} point${Math.abs(d) === 1 ? '' : 's'} since the last check.`;
+    }
+    prevPct = pct; hasResult = true;
+
+    $('#srResult').textContent = `Prediction: ${label}. Probability of placement ${pct} percent.`;
+    $('#dock').dataset.outcome = placed ? 'yes' : 'no';
+    $('#dockText').textContent = label;
+    $('#dockNum').textContent = pct + '%';
+    $('#resCode').innerHTML = jsonHTML(data);
+    $('#resMeta').textContent = 'Last response';
+    updateDock();
+  }
+
+  function clearResult() {
+    cancelAnimationFrame(raf); shown = null; prevPct = null; hasResult = false;
+    stage.classList.remove('has-result');
+    stage.dataset.outcome = 'none'; stage.dataset.stale = 'false';
+    $('#chipText').textContent = 'No result yet';
+    $('#bigNum').innerHTML = '&mdash;'; $('#pct').hidden = true;
+    $('#valYes').innerHTML = '&mdash;'; $('#valNo').innerHTML = '&mdash;';
+    $('#leafYes').classList.remove('win'); $('#leafNo').classList.remove('win');
+    line.className = 'line'; line.textContent = 'Run a prediction to see the tree split.';
+    $('#resCode').innerHTML = '<span class="dim">Waiting for a prediction</span>';
+    $('#resMeta').textContent = ''; showStageError(''); updateDock();
+  }
+
+  /* ---------------------------------------------------------------
+     Reacting to input
+  ---------------------------------------------------------------- */
+  function onChange() {
+    renderRequest();
+    if (!hasResult) return;
+    if (liveBox.checked) { clearTimeout(timer); timer = setTimeout(() => predict({ quiet: true }), 420); }
+    else { stage.dataset.stale = 'true'; line.className = 'line'; line.textContent = 'Values changed. Press Predict placement to update.'; }
+  }
+
+  FIELDS.forEach(f => {
+    const { num, rng } = els[f.key];
+    rng.addEventListener('input', () => { num.value = fmt(Number(rng.value)); paintRange(f); setFieldError(f, ''); onChange(); });
+    num.addEventListener('input', () => {
+      const v = readNum(f);
+      if (!validateField(f)) { rng.value = v; paintRange(f); setFieldError(f, ''); }
+      onChange();
+    });
+    num.addEventListener('change', () => setFieldError(f, validateField(f)));
+  });
+  $$('input[name="gender"], input[name="branch"]').forEach(i => i.addEventListener('change', onChange));
+  $('#extracurricular').addEventListener('change', e => {
+    $('#extraText').textContent = e.target.checked ? 'Takes part' : 'Does not take part';
+    onChange();
+  });
+  liveBox.addEventListener('change', () => {
+    if (liveBox.checked && hasResult && stage.dataset.stale === 'true') predict({ quiet: true });
+  });
+
+  form.addEventListener('submit', e => { e.preventDefault(); predict(); scrollToStageOnPhone(); });
+
+  $$('[data-example]').forEach(b => b.addEventListener('click', () => {
+    applyValues(EXAMPLES[b.dataset.example]);
+    predict(); scrollToStageOnPhone();
+  }));
+
+  $('#reset').addEventListener('click', () => {
+    clearTimeout(timer); seq++; if (controller) controller.abort();
+    applyValues(DEFAULTS); clearResult();
+    if (online) predict({ quiet: true });
+  });
+
+  /* ---------------------------------------------------------------
+     Mobile dock
+  ---------------------------------------------------------------- */
+  let stageVisible = true;
+  const dock = $('#dock');
+  function updateDock() { dock.classList.toggle('show', hasResult && !stageVisible); }
+  function scrollToStageOnPhone() {
+    if (matchMedia('(max-width: 979px)').matches) stage.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+  }
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(([en]) => { stageVisible = en.isIntersecting; updateDock(); }, { threshold: .15 }).observe(stage);
+  }
+  dock.addEventListener('click', scrollToStageOnPhone);
+
+  /* ---------------------------------------------------------------
+     Footer and optional settings
+  ---------------------------------------------------------------- */
+  if (CONFIG.githubUrl) { const a = $('#ghLink'); a.href = CONFIG.githubUrl; a.hidden = false; }
+  if (CONFIG.testAccuracy) $('#accuracy').innerHTML = ` Test accuracy: <b>${esc(CONFIG.testAccuracy)}</b>.`;
+  if (CONFIG.author || CONFIG.githubUrl) {
+    const c = $('#credit'); c.hidden = false;
+    c.innerHTML = (CONFIG.author ? `<span>Built by ${esc(CONFIG.author)}</span>` : '') +
+                  (CONFIG.githubUrl ? `<a href="${esc(CONFIG.githubUrl)}" target="_blank" rel="noopener">Source code</a>` : '');
+  }
+
+  /* ---------------------------------------------------------------
+     Start
+  ---------------------------------------------------------------- */
+  applyValues(DEFAULTS);
+  checkHealth();   // when the service is up, the first prediction runs automatically
+})();
+</script>
+</body>
+</html>
